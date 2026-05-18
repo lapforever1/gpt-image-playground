@@ -14,6 +14,11 @@ export function normalizeBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim()
   if (!trimmed) return ''
 
+  // 相对路径（以 / 开头）直接返回，不尝试解析为绝对 URL
+  if (trimmed.startsWith('/')) {
+    return trimmed.replace(/\/+$/, '')
+  }
+
   const input = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(trimmed)
     ? trimmed
     : `https://${trimmed}`
@@ -62,6 +67,15 @@ export function buildApiUrl(
 ): string {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
   const endpointPath = path.replace(/^\/+/, '')
+
+  // 相对路径（以 / 开头，如 /api-proxy/v1）直接拼接，不走代理前缀替换
+  if (normalizedBaseUrl.startsWith('/')) {
+    const apiPath = normalizedBaseUrl.endsWith('/v1')
+      ? endpointPath
+      : ['v1', endpointPath].join('/')
+    return `${normalizedBaseUrl}/${apiPath}`
+  }
+
   const apiPath = normalizedBaseUrl.endsWith('/v1')
     ? endpointPath
     : ['v1', endpointPath].join('/')
