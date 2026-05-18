@@ -548,7 +548,7 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
 export function validateApiProfile(profile: ApiProfile): string | null {
   if (!profile.name.trim()) return '缺少名称'
   if (profile.provider !== 'fal' && !profile.baseUrl.trim()) return '缺少 API URL'
-  if (!profile.apiKey.trim()) return '缺少 API Key'
+  if (profile.provider === 'openai' && !profile.apiKey.trim()) return '缺少 API Key'
   if (!profile.model.trim()) return '缺少模型 ID'
   return null
 }
@@ -710,15 +710,82 @@ export function mergeImportedSettings(currentSettings: Partial<AppSettings> | un
   })
 }
 
+// ===== 默认 API Mart (apimart) 自定义服务商 =====
+
+export const APIMART_PROVIDER_ID = 'apimart'
+export const DEFAULT_APIMART_PROFILE_ID = 'default-apimart'
+export const DEFAULT_APIMART_MODEL = 'gpt-image-2-official'
+
+function createApimartProviderDef(): CustomProviderDefinition {
+  return {
+    id: APIMART_PROVIDER_ID,
+    name: 'API Mart (GPT-Image-2)',
+    template: 'http-image',
+    submit: {
+      path: 'images/generations',
+      method: 'POST',
+      contentType: 'json',
+      body: {
+        model: '$profile.model',
+        prompt: '$prompt',
+        size: '$params.size',
+        resolution: '2k',
+        quality: '$params.quality',
+        output_format: '$params.output_format',
+        output_compression: '$params.output_compression',
+        moderation: '$params.moderation',
+        n: '$params.n',
+        image_urls: '$inputImages.dataUrls',
+        mask_url: '$mask.dataUrl',
+      },
+      taskIdPath: 'data.0.task_id',
+    },
+    poll: {
+      path: 'tasks/{task_id}',
+      method: 'GET',
+      intervalSeconds: 5,
+      statusPath: 'data.status',
+      successValues: ['completed'],
+      failureValues: ['failed', 'cancelled'],
+      errorPath: 'data.fail_reason',
+      result: {
+        imageUrlPaths: ['data.result.images.*.url.*'],
+      },
+    },
+  }
+}
+
+function createDefaultApimartProfile(): ApiProfile {
+  return {
+    id: DEFAULT_APIMART_PROFILE_ID,
+    name: '默认',
+    provider: APIMART_PROVIDER_ID,
+    baseUrl: DEFAULT_BASE_URL,
+    apiKey: '',
+    model: DEFAULT_APIMART_MODEL,
+    timeout: DEFAULT_API_TIMEOUT,
+    apiMode: 'images',
+    codexCli: false,
+    apiProxy: false,
+  }
+}
+
+// 当配置了代理 URL（VITE_DEFAULT_API_URL）时，使用 apimart 自定义服务商作为默认
+const HAS_PROXY_URL = Boolean(readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL))
+
 export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   baseUrl: DEFAULT_BASE_URL,
   apiKey: '',
-  model: DEFAULT_IMAGES_MODEL,
+  model: HAS_PROXY_URL ? DEFAULT_APIMART_MODEL : DEFAULT_IMAGES_MODEL,
   timeout: DEFAULT_API_TIMEOUT,
   apiMode: 'images',
   codexCli: false,
   apiProxy: DEFAULT_OPENAI_API_PROXY,
-  customProviders: [],
+  customProviders: HAS_PROXY_URL ? [createApimartProviderDef()] : [],
+  profiles: HAS_PROXY_URL
+    ? [createDefaultApimartProfile(), createDefaultOpenAIProfile({ id: 'fallback-openai', name: 'OpenAI (备用)' })]
+    : undefined,
+  activeProfileId: HAS_PROXY_URL ? DEFAULT_APIMART_PROFILE_ID : undefined,
   clearInputAfterSubmit: false,
   persistInputOnRestart: true,
   reuseTaskApiProfileTemporarily: false,
